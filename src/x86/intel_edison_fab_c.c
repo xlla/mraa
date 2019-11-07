@@ -1370,7 +1370,8 @@ mraa_intel_edison_fab_c()
         free(b->adv_func);
         goto error;
     }
-
+    //since mraa invoke us to got plat, if we call mraa's function here
+    //then we need to check plat is null everywhere before check plat->chardev_capable
     if (mraa_gpio_read_dir(tristate, &tristate_dir) != MRAA_SUCCESS) {
         free(b->pins);
         free(b->adv_func);
