@@ -815,7 +815,7 @@ mraa_gpio_chardev_edge_mode(mraa_gpio_context dev, mraa_gpio_edge_t mode)
         return MRAA_ERROR_INVALID_HANDLE;
     }
 
-    if (!plat->chardev_capable) {
+    if ((plat != NULL) && !plat->chardev_capable) {
         syslog(LOG_ERR, "mraa_gpio_chardev_edge_mode() not supported for old sysfs interface");
         return MRAA_ERROR_FEATURE_NOT_IMPLEMENTED;
     }
