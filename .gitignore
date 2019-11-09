@@ -1,5 +1,7 @@
 build/
 install/
+buildDebug/
+buildRelease/
 
 # Object files
 *.o

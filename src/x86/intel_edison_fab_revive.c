@@ -1,9 +1,32 @@
 /*
- * Author: Thomas Ingleby <thomas.c.ingleby@intel.com>
- *         Brendan Le Foll <brendan.le.foll@intel.com>
- * Copyright (c) 2014-2016 Intel Corporation.
+ * since Intel discontinues Edison, we have to use another great project 
+ * to stay up to date, so we can use latest linux kernel, use latest packages.
+ * to continue use mraa & upm library, I have to create this file to work with
+ * chardev device.
+ * 
+ * So I name it revive!
+ * 
+ * Author: Xlla <xllacyx@hotmail.com>
+ * Copyright (c) 2019 
  *
- * SPDX-License-Identifier: MIT
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
 #include <stdlib.h>
@@ -17,14 +40,15 @@
 #include <sys/utsname.h>
 
 #include "common.h"
+#include "gpio/gpio_chardev.h"
 #include "x86/intel_edison_fab_revive.h"
-#include "x86/intel_edison_fab_c.h"
 
 #define PLATFORM_NAME "Intel Edison"
 #define SYSFS_CLASS_GPIO "/sys/class/gpio"
 #define DEBUGFS_PINMODE_PATH "/sys/kernel/debug/gpio_debug/gpio"
 #define MAX_SIZE 64
 #define MAX_MODE_SIZE 8
+#define TRI_STATE_ALL "TRI_STATE_ALL"
 
 // This is an absolute path to a resource file found within sysfs.
 // Might not always be correct. First thing to check if mmap stops
@@ -48,8 +72,9 @@ typedef struct {
 static mraa_gpio_context tristate;
 
 static mraa_intel_edison_pinmodes_t pinmodes[MRAA_INTEL_EDISON_PINCOUNT];
-static unsigned int outputen[] = { 248, 249, 250, 251, 252, 253, 254, 255, 256, 257,
-                                   258, 259, 260, 261, 232, 233, 234, 235, 236, 237 };
+//invent another group magic numbers to location chip and line
+static unsigned int outputen[] = { 300, 301, 302, 303, 304, 305, 306, 307, 308, 309,
+                                   310, 311, 312, 313, 200, 201, 202, 203, 204, 205 };
 static mraa_gpio_context agpioOutputen[sizeof(outputen) / sizeof(outputen[0])];
 
 static unsigned int pullup_map[] = { 216, 217, 218, 219, 220, 221, 222, 223, 224, 225,
@@ -154,7 +179,8 @@ mraa_intel_edison_gpio_dir_pre(mraa_gpio_context dev, mraa_gpio_dir_t dir)
         int pin = dev->phy_pin;
 
         if (!agpioOutputen[pin]) {
-            agpioOutputen[pin] = mraa_gpio_init_raw(outputen[pin]);
+            //will init one chardev gpio pin dev 
+            agpioOutputen[pin] = mraa_gpio_init(outputen[pin]);
             if (agpioOutputen[pin] == NULL) {
                 return MRAA_ERROR_INVALID_RESOURCE;
             }
@@ -1227,65 +1253,45 @@ mraa_intel_edison_miniboard(mraa_board_t* b)
     return MRAA_SUCCESS;
 }
 
+bool is_exist_line(unsigned chip_number, unsigned line_number, char* name) {
+    //maybe we need check parmater first
+    mraa_gpiod_line_info* linfo = mraa_get_line_info_by_chip_number(chip_number, line_number);
+    if (!linfo) {
+        syslog(LOG_INFO, "edison: can't check gpio line name[%d] at chip[%d]",line_number,  chip_number);
+        return false;
+    }
+    if (strncmp(linfo->name, name, 32) != 0) {
+        syslog(LOG_INFO, "edison: expected name [%s] doest not match line name [%s]",name, linfo->name);
+        free(linfo);
+        return false;
+    }
+    free(linfo);
+    return true;
+}
+
 mraa_boolean_t
 is_arduino_board()
 {
     // We check for two things to determine if that's an Arduino expansion board
     // 1) is tristate GPIO available, by trying to initialize it
-    // 2) are there four specific GPIO expanders, by reading device labels
-    //        /sys/class/gpio/gpiochip{200,216,232,248}/label == "pcal9555a"
-    char gpiochip_path[MAX_SIZE];
-    char gpiochip_label[MAX_SIZE];
-    const char gpiochip_label_arduino[] = "pcal9555a";
-    const int gpiochip_idx[4] = { 200, 216, 232, 248 };
-
-    // prepare format string for fscanf, based on MAX_SIZE
-    char format_str[MAX_SIZE];
-    snprintf(format_str, MAX_SIZE, "%%%ds", MAX_SIZE - 1);
-    int i, ret, errno_saved;
+    // 2) are there four specific GPIO chip, by reading chip name
+    const int gpiochip_idx[4] = {  0,  1,  2,  3};
+    const char* gpio_line_names[4] = {"MUX15_SEL", "DIG0_PU_PD", "MUX14_DIR", "MUX33_DIR"};
 
     // check tristate first
-    tristate = mraa_gpio_init_raw(214);
-    if (tristate == NULL) {
-        syslog(LOG_INFO, "edison: tristate not detected");
+    //plat is NULL still, can't call mraa_gpio_init
+    //direct check line offset in chip1
+    mraa_gpiod_line_info* linfo = mraa_get_line_info_by_chip_number(1, 14);
+    if (!is_exist_line(1, 14, TRI_STATE_ALL)) {
+        syslog(LOG_INFO, "edison: tristate line info not detected");
         return 0;
     }
 
     // GPIO expanders second
-    for (i=0; i<(sizeof(gpiochip_idx)/sizeof(gpiochip_idx[0])); i++) {
-        memset(gpiochip_path, 0, MAX_SIZE);
-        snprintf(gpiochip_path,
-                 MAX_SIZE,
-                 SYSFS_CLASS_GPIO "/gpiochip%d/label",
-                 gpiochip_idx[i]);
-        FILE *fp;
-        fp = fopen(gpiochip_path, "r");
-        if (fp == NULL) {
-            syslog(LOG_INFO,
-                   "edison: could not open '%s', errno %d",
-                   gpiochip_path,
-                   errno);
-            return 0;
-        }
-
-        memset(gpiochip_label, 0, MAX_SIZE);
-        ret = fscanf(fp, format_str, &gpiochip_label);
-        errno_saved = errno;
-        fclose(fp);
-        if (ret != 1) {
-            syslog(LOG_INFO,
-                   "edison: could not read from '%s', errno %d",
-                   gpiochip_path,
-                   errno_saved);
-            return 0;
-        }
-
+    for (int i=0; i<(sizeof(gpiochip_idx)/sizeof(gpiochip_idx[0])); i++) {
         // we want to check for exact match
-        if (strncmp(gpiochip_label, gpiochip_label_arduino, strlen(gpiochip_label) + 1) != 0) {
-            syslog(LOG_INFO,
-                   "edison: gpiochip label (%s) is not what we expect (%s)\n",
-                   gpiochip_label,
-                   gpiochip_label_arduino);
+        if (!is_exist_line(gpiochip_idx[i]+1, 0, gpio_line_names[i])) {
+            syslog(LOG_INFO, "edison: tristate line info not detected");
             return 0;
         }
     }
@@ -1295,7 +1301,7 @@ is_arduino_board()
 }
 
 mraa_board_t*
-mraa_intel_edison_fab_c()
+mraa_intel_edison_fab_revive()
 {
     mraa_gpio_dir_t tristate_dir;
     struct utsname name;
@@ -1321,17 +1327,7 @@ mraa_intel_edison_fab_c()
         goto error;
     }
 
-    if (major >= 4) {
-        vanilla_kernel = 1;
-        syslog(LOG_NOTICE,
-               "edison: Linux version 4 or higher detected, assuming Vanilla kernel");
-        if ((major == 4 && minor >= 18) ||(major >= 5)) {
-            syslog(LOG_NOTICE,
-               "edison: Linux version 4.18 or higher detected, use chardev driver");
-            free(b);
-            return mraa_intel_edison_fab_revive();
-        }
-    };
+    vanilla_kernel = 1;
 
     if (is_arduino_board() == 0) {
         syslog(LOG_NOTICE,
