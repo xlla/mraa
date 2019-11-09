@@ -36,7 +36,7 @@
 #include "mraa/led.h"
 
 /* LED name */
-#define USER_LED 0
+#define USER_LED 13
 
 /* trigger type */
 #define LED_TRIGGER "heartbeat"
