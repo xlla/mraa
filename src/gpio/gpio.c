@@ -117,7 +117,8 @@ mraa_gpio_init_internal(mraa_adv_func_t* func_table, int pin)
     dev->isr_thread_terminating = 0;
     dev->phy_pin = -1;
 
-    if ((plat != NULL) && (!plat->chardev_capable)) {
+    //maybe plat is null here, we can still do check
+    if ((plat == NULL) || (!plat->chardev_capable)) {
         char bu[MAX_SIZE];
         int length;
 
@@ -670,7 +671,7 @@ mraa_gpio_get_events(mraa_gpio_context dev)
 
     unsigned int event_idx = 0;
 
-    if ((plat != NULL) && (!plat->chardev_capable)) {
+    if (plat->chardev_capable) {
         unsigned int pin_idx;
         mraa_gpiod_group_t gpio_iter;
 
@@ -727,7 +728,7 @@ mraa_gpio_interrupt_handler(void* arg)
     if (mraa_is_sub_platform_id(dev->pin)) {
     }
     /* Is the platform chardev_capable? */
-    else if ((plat != NULL) && (!plat->chardev_capable)) {
+    else if (plat->chardev_capable) {
         mraa_gpiod_group_t gpio_group;
 
         for_each_gpio_group(gpio_group, dev)
@@ -780,7 +781,7 @@ mraa_gpio_interrupt_handler(void* arg)
         if (IS_FUNC_DEFINED(dev, gpio_wait_interrupt_replace)) {
             ret = dev->advance_func->gpio_wait_interrupt_replace(dev);
         } else {
-            if ((plat != NULL) && (!plat->chardev_capable)) {
+            if (plat->chardev_capable) {
                 ret = mraa_gpio_chardev_wait_interrupt(fps, idx, dev->events);
             } else {
                 ret = mraa_gpio_wait_interrupt(fps, idx
@@ -832,7 +833,7 @@ mraa_gpio_chardev_edge_mode(mraa_gpio_context dev, mraa_gpio_edge_t mode)
         return MRAA_ERROR_INVALID_HANDLE;
     }
 
-    if ((plat != NULL) && !plat->chardev_capable) {
+    if ((plat == NULL) || !plat->chardev_capable) {
         syslog(LOG_ERR, "mraa_gpio_chardev_edge_mode() not supported for old sysfs interface");
         return MRAA_ERROR_FEATURE_NOT_IMPLEMENTED;
     }
@@ -912,7 +913,7 @@ mraa_gpio_edge_mode(mraa_gpio_context dev, mraa_gpio_edge_t mode)
         }
     }
 
-    if ((plat != NULL) && (!plat->chardev_capable))
+    if (plat->chardev_capable) 
         return mraa_gpio_chardev_edge_mode(dev, mode);
 
     mraa_gpio_context it = dev;
@@ -1081,7 +1082,7 @@ mraa_gpio_mode(mraa_gpio_context dev, mraa_gpio_mode_t mode)
             return pre_ret;
     }
 
-    if ((plat != NULL) && (!plat->chardev_capable)) {
+    if (plat->chardev_capable) {
         unsigned flags = 0;
         int line_handle;
         mraa_gpiod_group_t gpio_iter;
@@ -1254,7 +1255,7 @@ mraa_gpio_dir(mraa_gpio_context dev, mraa_gpio_dir_t dir)
         }
     }
 
-    if ((plat != NULL) && (!plat->chardev_capable))
+    if (plat != NULL && plat->chardev_capable)
         return mraa_gpio_chardev_dir(dev, dir);
 
     mraa_gpio_context it = dev;
@@ -1332,7 +1333,7 @@ mraa_gpio_read_dir(mraa_gpio_context dev, mraa_gpio_dir_t* dir)
         return dev->advance_func->gpio_read_dir_replace(dev, dir);
     }
 
-    if ((plat != NULL) && (!plat->chardev_capable)) {
+    if (plat != NULL && plat->chardev_capable) {
         mraa_gpiod_group_t gpio_iter;
 
         for_each_gpio_group(gpio_iter, dev)
@@ -1412,7 +1413,7 @@ mraa_gpio_read(mraa_gpio_context dev)
         return dev->advance_func->gpio_read_replace(dev);
     }
 
-    if ((plat != NULL) && (!plat->chardev_capable)) {
+    if (plat->chardev_capable) {
         int output_values[1] = { 0 };
 
         if (mraa_gpio_read_multi(dev, output_values) != MRAA_SUCCESS)
@@ -1452,7 +1453,7 @@ mraa_gpio_read_multi(mraa_gpio_context dev, int output_values[])
         return -1;
     }
 
-    if ((plat != NULL) && (!plat->chardev_capable)) {
+    if (plat->chardev_capable) {
         memset(output_values, 0, dev->num_pins * sizeof(int));
 
         mraa_gpiod_group_t gpio_iter;
@@ -1522,7 +1523,7 @@ mraa_gpio_write(mraa_gpio_context dev, int value)
         return dev->advance_func->gpio_write_replace(dev, value);
     }
 
-    if ((plat != NULL) && (!plat->chardev_capable)) {
+    if (plat != NULL && plat->chardev_capable) {
         int input_values[1] = { value };
 
         return mraa_gpio_write_multi(dev, input_values);
@@ -1565,7 +1566,7 @@ mraa_gpio_write_multi(mraa_gpio_context dev, int input_values[])
         return MRAA_ERROR_INVALID_HANDLE;
     }
 
-    if ((plat != NULL) && (!plat->chardev_capable)) {
+    if (plat->chardev_capable) {
         mraa_gpiod_group_t gpio_iter;
 
         int* counters = calloc(dev->num_chips, sizeof(int));

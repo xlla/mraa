@@ -41,7 +41,7 @@
 
 #include "common.h"
 #include "gpio/gpio_chardev.h"
-#include "x86/intel_edison_fab_revive.h"
+#include "x86/intel_edison_fab_c_revive.h"
 
 #define PLATFORM_NAME "Intel Edison"
 #define SYSFS_CLASS_GPIO "/sys/class/gpio"
@@ -96,8 +96,36 @@ typedef struct {
 
 static mraa_edison_pwm_wa_pinstate_t pwm_wa_state[4] = {{.duty_cycle = 0, .pwm_disabled = 0}};
 
+mraa_boolean_t mraa_intel_edison_fab_c_is_revive()
+{
+    mraa_boolean_t result = 0;
+    struct utsname name;
+    int major, minor, release;
+    int ret;
+
+    if (uname(&name) != 0) {
+        return result;
+    }
+
+    ret = sscanf(name.release, "%d.%d.%d", &major, &minor, &release);
+    if (ret == 2) {
+        ret++;
+        release = 0;
+    }
+    if (ret < 2) {
+        return result;
+    }
+
+    if ((major == 4 && minor >= 18) ||(major >= 5)) {
+        syslog(LOG_NOTICE,
+            "edison: Linux version 4.18 or higher detected, use chardev driver");
+        result = 1;
+    }
+    return result;
+}
+
 mraa_result_t
-mraa_intel_edison_spi_lsbmode_replace(mraa_spi_context dev, mraa_boolean_t lsb)
+mraa_intel_edison_revive_spi_lsbmode_replace(mraa_spi_context dev, mraa_boolean_t lsb)
 {
     uint8_t lsb_mode = (uint8_t) lsb;
 
@@ -167,7 +195,7 @@ mraa_intel_edison_pinmode_change(int sysfs, int mode)
 }
 
 mraa_result_t
-mraa_intel_edison_gpio_dir_pre(mraa_gpio_context dev, mraa_gpio_dir_t dir)
+mraa_intel_edison_revive_gpio_dir_pre(mraa_gpio_context dev, mraa_gpio_dir_t dir)
 {
 
     if (dev->phy_pin >= 0) {
@@ -201,7 +229,7 @@ mraa_intel_edison_gpio_dir_pre(mraa_gpio_context dev, mraa_gpio_dir_t dir)
 }
 
 mraa_result_t
-mraa_intel_edison_gpio_dir_post(mraa_gpio_context dev, mraa_gpio_dir_t dir)
+mraa_intel_edison_revive_gpio_dir_post(mraa_gpio_context dev, mraa_gpio_dir_t dir)
 {
     if (dev->phy_pin >= 0) {
         return mraa_gpio_write(tristate, 1);
@@ -210,7 +238,7 @@ mraa_intel_edison_gpio_dir_post(mraa_gpio_context dev, mraa_gpio_dir_t dir)
 }
 
 mraa_result_t
-mraa_intel_edison_gpio_init_post(mraa_gpio_context dev)
+mraa_intel_edison_revive_gpio_init_post(mraa_gpio_context dev)
 {
     if (dev == NULL) {
         return MRAA_ERROR_INVALID_RESOURCE;
@@ -229,7 +257,7 @@ mraa_intel_edison_gpio_init_post(mraa_gpio_context dev)
 }
 
 mraa_result_t
-mraa_intel_edison_gpio_close_pre(mraa_gpio_context dev)
+mraa_intel_edison_revive_gpio_close_pre(mraa_gpio_context dev)
 {
     // check if we own it
     if (dev->owner != 0) {
@@ -245,7 +273,7 @@ mraa_intel_edison_gpio_close_pre(mraa_gpio_context dev)
 }
 
 mraa_result_t
-mraa_intel_edison_i2c_init_pre(unsigned int bus)
+mraa_intel_edison_revive_i2c_init_pre(unsigned int bus)
 {
     if (miniboard == 0) {
         if (bus != 6) {
@@ -295,7 +323,7 @@ mraa_intel_edison_i2c_init_pre(unsigned int bus)
 }
 
 static mraa_result_t
-mraa_intel_edison_misc_spi()
+mraa_intel_edison_revive_misc_spi()
 {
     // These arrays must have same length
     static const int gpio_pin_list[] = {263, 240, 262, 241, 242, 243};
@@ -335,7 +363,7 @@ mraa_intel_edison_misc_spi()
 }
 
 mraa_result_t
-mraa_intel_edison_aio_get_fp(mraa_aio_context dev)
+mraa_intel_edison_revive_aio_get_fp(mraa_aio_context dev)
 {
     char file_path[64] = "";
 
@@ -353,7 +381,7 @@ mraa_intel_edison_aio_get_fp(mraa_aio_context dev)
 }
 
 mraa_result_t
-mraa_intel_edison_aio_init_pre(unsigned int aio)
+mraa_intel_edison_revive_aio_init_pre(unsigned int aio)
 {
     if (aio > plat->aio_count) {
         syslog(LOG_ERR, "edison: Invalid analog input channel");
@@ -391,13 +419,13 @@ mraa_intel_edison_aio_init_pre(unsigned int aio)
 }
 
 mraa_result_t
-mraa_intel_edison_aio_init_post(mraa_aio_context dev)
+mraa_intel_edison_revive_aio_init_post(mraa_aio_context dev)
 {
     return mraa_gpio_write(tristate, 1);
 }
 
 mraa_result_t
-mraa_intel_edison_pwm_enable_pre(mraa_pwm_context dev, int enable) {
+mraa_intel_edison_revive_pwm_enable_pre(mraa_pwm_context dev, int enable) {
     // PWM 0% duty workaround: update state array
     // if someone first ran write(0) and then enable(1).
     if ((pwm_wa_state[dev->pin].pwm_disabled == 1) && (enable == 1)) {
@@ -423,7 +451,7 @@ mraa_intel_edison_pwm_enable_pre(mraa_pwm_context dev, int enable) {
 }
 
 mraa_result_t
-mraa_intel_edison_pwm_write_pre(mraa_pwm_context dev, float percentage) {
+mraa_intel_edison_revive_pwm_write_pre(mraa_pwm_context dev, float percentage) {
     // PWM 0% duty workaround: set the state array and enable/disable pin accordingly
     if (percentage == 0.0f) {
         syslog(LOG_INFO, "edison_pwm_write_pre (pwm%i): requested zero duty cycle, disabling PWM on the pin", dev->pin);
@@ -439,7 +467,7 @@ mraa_intel_edison_pwm_write_pre(mraa_pwm_context dev, float percentage) {
 }
 
 mraa_result_t
-mraa_intel_edison_pwm_init_pre(int pin)
+mraa_intel_edison_revive_pwm_init_pre(int pin)
 {
     if (miniboard == 1) {
         return mraa_intel_edison_pinmode_change(plat->pins[pin].gpio.pinmap, 1);
@@ -483,7 +511,7 @@ mraa_intel_edison_pwm_init_pre(int pin)
 }
 
 mraa_result_t
-mraa_intel_edison_pwm_init_post(mraa_pwm_context pwm)
+mraa_intel_edison_revive_pwm_init_post(mraa_pwm_context pwm)
 {
     pwm_wa_state[pwm->pin].pwm_disabled = 0;
     pwm_wa_state[pwm->pin].duty_cycle = 0.0f;
@@ -491,7 +519,7 @@ mraa_intel_edison_pwm_init_post(mraa_pwm_context pwm)
 }
 
 mraa_result_t
-mraa_intel_edison_spi_init_pre(int bus)
+mraa_intel_edison_revive_spi_init_pre(int bus)
 {
     if (miniboard == 1) {
         mraa_intel_edison_pinmode_change(115, 1);
@@ -540,13 +568,13 @@ mraa_intel_edison_spi_init_pre(int bus)
 }
 
 mraa_result_t
-mraa_intel_edison_spi_init_post(mraa_spi_context spi)
+mraa_intel_edison_revive_spi_init_post(mraa_spi_context spi)
 {
     return mraa_gpio_write(tristate, 1);
 }
 
 mraa_result_t
-mraa_intel_edison_gpio_mode_replace(mraa_gpio_context dev, mraa_gpio_mode_t mode)
+mraa_intel_edison_revive_gpio_mode_replace(mraa_gpio_context dev, mraa_gpio_mode_t mode)
 {
     if (dev->value_fp != -1) {
         if (close(dev->value_fp) != 0) {
@@ -598,7 +626,7 @@ mraa_intel_edison_gpio_mode_replace(mraa_gpio_context dev, mraa_gpio_mode_t mode
 }
 
 mraa_result_t
-mraa_intel_edison_mb_gpio_mode(mraa_gpio_context dev, mraa_gpio_mode_t mode)
+mraa_intel_edison_revive_mb_gpio_mode(mraa_gpio_context dev, mraa_gpio_mode_t mode)
 {
     if (dev->value_fp != -1) {
         if (close(dev->value_fp) != 0) {
@@ -665,7 +693,7 @@ mraa_intel_edison_mb_gpio_mode(mraa_gpio_context dev, mraa_gpio_mode_t mode)
 }
 
 mraa_result_t
-mraa_intel_edison_uart_init_pre(int index)
+mraa_intel_edison_revive_uart_init_pre(int index)
 {
     if (index != 0) {
         syslog(LOG_ERR, "edison: Failed to write to drive mode");
@@ -724,13 +752,13 @@ mraa_intel_edison_uart_init_pre(int index)
 }
 
 mraa_result_t
-mraa_intel_edison_uart_init_post(mraa_uart_context uart)
+mraa_intel_edison_revive_uart_init_post(mraa_uart_context uart)
 {
     return mraa_gpio_write(tristate, 1);
 }
 
 static mraa_result_t
-mraa_intel_edison_mmap_unsetup()
+mraa_intel_edison_revive_mmap_unsetup()
 {
     if (mmap_reg == NULL) {
         syslog(LOG_ERR, "edison mmap: null register cant unsetup");
@@ -745,7 +773,7 @@ mraa_intel_edison_mmap_unsetup()
 }
 
 mraa_result_t
-mraa_intel_edison_mmap_write(mraa_gpio_context dev, int value)
+mraa_intel_edison_revive_mmap_write(mraa_gpio_context dev, int value)
 {
     uint8_t offset = ((dev->pin / 32) * sizeof(uint32_t));
     uint8_t valoff;
@@ -762,7 +790,7 @@ mraa_intel_edison_mmap_write(mraa_gpio_context dev, int value)
 }
 
 int
-mraa_intel_edison_mmap_read(mraa_gpio_context dev)
+mraa_intel_edison_revive_mmap_read(mraa_gpio_context dev)
 {
     uint8_t offset = ((dev->pin / 32) * sizeof(uint32_t));
     uint32_t value;
@@ -775,7 +803,7 @@ mraa_intel_edison_mmap_read(mraa_gpio_context dev)
 }
 
 mraa_result_t
-mraa_intel_edison_mmap_setup(mraa_gpio_context dev, mraa_boolean_t en)
+mraa_intel_edison_revive_mmap_setup(mraa_gpio_context dev, mraa_boolean_t en)
 {
     if (dev == NULL) {
         syslog(LOG_ERR, "edison mmap: context not valid");
@@ -791,7 +819,7 @@ mraa_intel_edison_mmap_setup(mraa_gpio_context dev, mraa_boolean_t en)
         dev->mmap_read = NULL;
         mmap_count--;
         if (mmap_count == 0) {
-            return mraa_intel_edison_mmap_unsetup();
+            return mraa_intel_edison_revive_mmap_unsetup();
         }
         return MRAA_SUCCESS;
     }
@@ -826,15 +854,15 @@ mraa_intel_edison_mmap_setup(mraa_gpio_context dev, mraa_boolean_t en)
             return MRAA_ERROR_NO_RESOURCES;
         }
     }
-    dev->mmap_write = &mraa_intel_edison_mmap_write;
-    dev->mmap_read = &mraa_intel_edison_mmap_read;
+    dev->mmap_write = &mraa_intel_edison_revive_mmap_write;
+    dev->mmap_read = &mraa_intel_edison_revive_mmap_read;
     mmap_count++;
 
     return MRAA_SUCCESS;
 }
 
 mraa_result_t
-mraa_intel_edison_i2c_freq(mraa_i2c_context dev, mraa_i2c_mode_t mode)
+mraa_intel_edison_revive_i2c_freq(mraa_i2c_context dev, mraa_i2c_mode_t mode)
 {
     int sysnode = -1;
 
@@ -879,7 +907,7 @@ mraa_intel_edison_i2c_freq(mraa_i2c_context dev, mraa_i2c_mode_t mode)
 }
 
 mraa_result_t
-mraa_intel_edison_miniboard(mraa_board_t* b)
+mraa_intel_edison_revive_miniboard(mraa_board_t* b)
 {
     miniboard = 1;
     b->phy_pin_count = 56;
@@ -899,16 +927,16 @@ mraa_intel_edison_miniboard(mraa_board_t* b)
         free(b->pins);
         return MRAA_ERROR_UNSPECIFIED;
     }
-    b->adv_func->gpio_init_post = &mraa_intel_edison_gpio_init_post;
-    b->adv_func->pwm_init_pre = &mraa_intel_edison_pwm_init_pre;
-    b->adv_func->pwm_enable_pre = &mraa_intel_edison_pwm_enable_pre;
-    b->adv_func->pwm_write_pre = &mraa_intel_edison_pwm_write_pre;
-    b->adv_func->i2c_init_pre = &mraa_intel_edison_i2c_init_pre;
-    b->adv_func->i2c_set_frequency_replace = &mraa_intel_edison_i2c_freq;
-    b->adv_func->spi_init_pre = &mraa_intel_edison_spi_init_pre;
-    b->adv_func->gpio_mode_replace = &mraa_intel_edison_mb_gpio_mode;
-    b->adv_func->uart_init_pre = &mraa_intel_edison_uart_init_pre;
-    b->adv_func->gpio_mmap_setup = &mraa_intel_edison_mmap_setup;
+    b->adv_func->gpio_init_post = &mraa_intel_edison_revive_gpio_init_post;
+    b->adv_func->pwm_init_pre = &mraa_intel_edison_revive_pwm_init_pre;
+    b->adv_func->pwm_enable_pre = &mraa_intel_edison_revive_pwm_enable_pre;
+    b->adv_func->pwm_write_pre = &mraa_intel_edison_revive_pwm_write_pre;
+    b->adv_func->i2c_init_pre = &mraa_intel_edison_revive_i2c_init_pre;
+    b->adv_func->i2c_set_frequency_replace = &mraa_intel_edison_revive_i2c_freq;
+    b->adv_func->spi_init_pre = &mraa_intel_edison_revive_spi_init_pre;
+    b->adv_func->gpio_mode_replace = &mraa_intel_edison_revive_mb_gpio_mode;
+    b->adv_func->uart_init_pre = &mraa_intel_edison_revive_uart_init_pre;
+    b->adv_func->gpio_mmap_setup = &mraa_intel_edison_revive_mmap_setup;
 
     int pos = 0;
     strncpy(b->pins[pos].name, "J17-1", 8);
@@ -1253,24 +1281,24 @@ mraa_intel_edison_miniboard(mraa_board_t* b)
     return MRAA_SUCCESS;
 }
 
-bool is_exist_line(unsigned chip_number, unsigned line_number, char* name) {
+mraa_boolean_t is_exist_line(unsigned chip_number, unsigned line_number, const char* name) {
     //maybe we need check parmater first
     mraa_gpiod_line_info* linfo = mraa_get_line_info_by_chip_number(chip_number, line_number);
     if (!linfo) {
         syslog(LOG_INFO, "edison: can't check gpio line name[%d] at chip[%d]",line_number,  chip_number);
-        return false;
+        return 0;
     }
     if (strncmp(linfo->name, name, 32) != 0) {
         syslog(LOG_INFO, "edison: expected name [%s] doest not match line name [%s]",name, linfo->name);
         free(linfo);
-        return false;
+        return 0;
     }
     free(linfo);
-    return true;
+    return 1;
 }
 
 mraa_boolean_t
-is_arduino_board()
+is_arduino_board_revive()
 {
     // We check for two things to determine if that's an Arduino expansion board
     // 1) is tristate GPIO available, by trying to initialize it
@@ -1279,9 +1307,6 @@ is_arduino_board()
     const char* gpio_line_names[4] = {"MUX15_SEL", "DIG0_PU_PD", "MUX14_DIR", "MUX33_DIR"};
 
     // check tristate first
-    //plat is NULL still, can't call mraa_gpio_init
-    //direct check line offset in chip1
-    mraa_gpiod_line_info* linfo = mraa_get_line_info_by_chip_number(1, 14);
     if (!is_exist_line(1, 14, TRI_STATE_ALL)) {
         syslog(LOG_INFO, "edison: tristate line info not detected");
         return 0;
@@ -1301,12 +1326,18 @@ is_arduino_board()
 }
 
 mraa_board_t*
-mraa_intel_edison_fab_revive()
+mraa_intel_edison_fab_c_revive()
 {
     mraa_gpio_dir_t tristate_dir;
     struct utsname name;
     int major, minor, release;
     int ret;
+
+    if(!mraa_intel_edison_fab_c_is_revive()) {
+        syslog(LOG_CRIT, "edison: Arduino board kernel need >= 4.18");
+        return NULL;
+    }
+
     mraa_board_t* b = (mraa_board_t*) calloc(1, sizeof(mraa_board_t));
     if (b == NULL) {
         return NULL;
@@ -1327,12 +1358,20 @@ mraa_intel_edison_fab_revive()
         goto error;
     }
 
-    vanilla_kernel = 1;
+    if (major >= 4) {
+        vanilla_kernel = 1;
+        syslog(LOG_NOTICE,
+               "edison: Linux version 4 or higher detected, assuming Vanilla kernel");
+        if ((major == 4 && minor >= 18) ||(major >= 5)) {
+            syslog(LOG_NOTICE,
+               "edison: Linux version 4.18 or higher detected, use chardev driver");
+        }
+    };
 
-    if (is_arduino_board() == 0) {
+    if (is_arduino_board_revive() == 0) {
         syslog(LOG_NOTICE,
                "edison: Arduino board not detected, assuming Intel Edison Miniboard");
-        if (mraa_intel_edison_miniboard(b) != MRAA_SUCCESS) {
+        if (mraa_intel_edison_revive_miniboard(b) != MRAA_SUCCESS) {
             goto error;
         }
         return b;
@@ -1347,26 +1386,26 @@ mraa_intel_edison_fab_revive()
     if (b->adv_func == NULL) {
         goto error;
     }
-    b->adv_func->gpio_dir_pre = &mraa_intel_edison_gpio_dir_pre;
-    b->adv_func->gpio_init_post = &mraa_intel_edison_gpio_init_post;
-    b->adv_func->gpio_close_pre = &mraa_intel_edison_gpio_close_pre;
-    b->adv_func->gpio_dir_post = &mraa_intel_edison_gpio_dir_post;
-    b->adv_func->i2c_init_pre = &mraa_intel_edison_i2c_init_pre;
-    b->adv_func->i2c_set_frequency_replace = &mraa_intel_edison_i2c_freq;
-    b->adv_func->aio_get_valid_fp = &mraa_intel_edison_aio_get_fp;
-    b->adv_func->aio_init_pre = &mraa_intel_edison_aio_init_pre;
-    b->adv_func->aio_init_post = &mraa_intel_edison_aio_init_post;
-    b->adv_func->pwm_init_pre = &mraa_intel_edison_pwm_init_pre;
-    b->adv_func->pwm_init_post = &mraa_intel_edison_pwm_init_post;
-    b->adv_func->pwm_enable_pre = &mraa_intel_edison_pwm_enable_pre;
-    b->adv_func->pwm_write_pre = &mraa_intel_edison_pwm_write_pre;
-    b->adv_func->spi_init_pre = &mraa_intel_edison_spi_init_pre;
-    b->adv_func->spi_init_post = &mraa_intel_edison_spi_init_post;
-    b->adv_func->gpio_mode_replace = &mraa_intel_edison_gpio_mode_replace;
-    b->adv_func->uart_init_pre = &mraa_intel_edison_uart_init_pre;
-    b->adv_func->uart_init_post = &mraa_intel_edison_uart_init_post;
-    b->adv_func->gpio_mmap_setup = &mraa_intel_edison_mmap_setup;
-    b->adv_func->spi_lsbmode_replace = &mraa_intel_edison_spi_lsbmode_replace;
+    b->adv_func->gpio_dir_pre = &mraa_intel_edison_revive_gpio_dir_pre;
+    b->adv_func->gpio_init_post = &mraa_intel_edison_revive_gpio_init_post;
+    b->adv_func->gpio_close_pre = &mraa_intel_edison_revive_gpio_close_pre;
+    b->adv_func->gpio_dir_post = &mraa_intel_edison_revive_gpio_dir_post;
+    b->adv_func->i2c_init_pre = &mraa_intel_edison_revive_i2c_init_pre;
+    b->adv_func->i2c_set_frequency_replace = &mraa_intel_edison_revive_i2c_freq;
+    b->adv_func->aio_get_valid_fp = &mraa_intel_edison_revive_aio_get_fp;
+    b->adv_func->aio_init_pre = &mraa_intel_edison_revive_aio_init_pre;
+    b->adv_func->aio_init_post = &mraa_intel_edison_revive_aio_init_post;
+    b->adv_func->pwm_init_pre = &mraa_intel_edison_revive_pwm_init_pre;
+    b->adv_func->pwm_init_post = &mraa_intel_edison_revive_pwm_init_post;
+    b->adv_func->pwm_enable_pre = &mraa_intel_edison_revive_pwm_enable_pre;
+    b->adv_func->pwm_write_pre = &mraa_intel_edison_revive_pwm_write_pre;
+    b->adv_func->spi_init_pre = &mraa_intel_edison_revive_spi_init_pre;
+    b->adv_func->spi_init_post = &mraa_intel_edison_revive_spi_init_post;
+    b->adv_func->gpio_mode_replace = &mraa_intel_edison_revive_gpio_mode_replace;
+    b->adv_func->uart_init_pre = &mraa_intel_edison_revive_uart_init_pre;
+    b->adv_func->uart_init_post = &mraa_intel_edison_revive_uart_init_post;
+    b->adv_func->gpio_mmap_setup = &mraa_intel_edison_revive_mmap_setup;
+    b->adv_func->spi_lsbmode_replace = &mraa_intel_edison_revive_spi_lsbmode_replace;
 
     b->pins = (mraa_pininfo_t*) calloc(MRAA_INTEL_EDISON_PINCOUNT, sizeof(mraa_pininfo_t));
     if (b->pins == NULL) {
@@ -1386,7 +1425,7 @@ mraa_intel_edison_fab_revive()
     }
 
     // this is required to initialise not just SPI but also the ADC channels
-    mraa_intel_edison_misc_spi();
+    mraa_intel_edison_revive_misc_spi();
 
     b->adc_raw = 12;
     b->adc_supported = 10;
