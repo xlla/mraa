@@ -14,6 +14,7 @@
 #include "x86/intel_galileo_rev_d.h"
 #include "x86/intel_galileo_rev_g.h"
 #include "x86/intel_edison_fab_c.h"
+#include "x86/intel_edison_fab_c_revive.h"
 #include "x86/intel_de3815.h"
 #include "x86/intel_nuc5.h"
 #include "x86/intel_minnow_byt_compatible.h"
@@ -49,10 +50,16 @@ mraa_x86_platform()
                 plat = mraa_intel_galileo_gen2();
             } else if (strncmp(line, "BODEGA BAY", strlen("BODEGA BAY") + 1) == 0) {
                 platform_type = MRAA_INTEL_EDISON_FAB_C;
-                plat = mraa_intel_edison_fab_c();
+                if(mraa_intel_edison_fab_c_is_revive())
+                    plat = mraa_intel_edison_fab_c_revive();
+                else
+                    plat = mraa_intel_edison_fab_c();
             } else if (strncmp(line, "SALT BAY", strlen("SALT BAY") + 1) == 0) {
                 platform_type = MRAA_INTEL_EDISON_FAB_C;
-                plat = mraa_intel_edison_fab_c();
+                if(mraa_intel_edison_fab_c_is_revive())
+                    plat = mraa_intel_edison_fab_c_revive();
+                else
+                    plat = mraa_intel_edison_fab_c();
             } else if (strncmp(line, "DE3815", strlen("DE3815") + 1) == 0) {
                 platform_type = MRAA_INTEL_DE3815;
                 plat = mraa_intel_de3815();
@@ -146,6 +153,8 @@ mraa_x86_platform()
     plat = mraa_intel_galileo_gen2();
     #elif defined(xMRAA_INTEL_EDISON_FAB_C)
     plat = mraa_intel_edison_fab_c();
+    #elif defined(xMRAA_INTEL_EDISON_FAB_C_REVIVE)
+    plat = mraa_intel_edison_fab_c_revive();
     #elif defined(xMRAA_INTEL_DE3815)
     plat = mraa_intel_de3815();
     #elif defined(xMRAA_INTEL_MINNOWBOARD_MAX)

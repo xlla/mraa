@@ -17,8 +17,8 @@
 #include <sys/utsname.h>
 
 #include "common.h"
-#include "x86/intel_edison_fab_revive.h"
 #include "x86/intel_edison_fab_c.h"
+
 
 #define PLATFORM_NAME "Intel Edison"
 #define SYSFS_CLASS_GPIO "/sys/class/gpio"
@@ -1325,13 +1325,7 @@ mraa_intel_edison_fab_c()
         vanilla_kernel = 1;
         syslog(LOG_NOTICE,
                "edison: Linux version 4 or higher detected, assuming Vanilla kernel");
-        if ((major == 4 && minor >= 18) ||(major >= 5)) {
-            syslog(LOG_NOTICE,
-               "edison: Linux version 4.18 or higher detected, use chardev driver");
-            free(b);
-            return mraa_intel_edison_fab_revive();
-        }
-    };
+    }
 
     if (is_arduino_board() == 0) {
         syslog(LOG_NOTICE,
