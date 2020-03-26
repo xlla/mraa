@@ -101,7 +101,7 @@ mraa_gpio_init_internal(mraa_adv_func_t* func_table, int pin)
     dev->phy_pin = -1;
 
     //maybe plat is null here, we can still do check
-    if ((plat == NULL) || (!plat->chardev_capable)) {
+    if ((plat != NULL) && (!plat->chardev_capable)) {
         char bu[MAX_SIZE];
         int length;
 
@@ -229,6 +229,7 @@ mraa_gpio_init_by_name(char* name)
                 break;
             }
         }
+        if(line_found) break;
     }
 
     if (!line_found) {
@@ -816,7 +817,7 @@ mraa_gpio_chardev_edge_mode(mraa_gpio_context dev, mraa_gpio_edge_t mode)
         return MRAA_ERROR_INVALID_HANDLE;
     }
 
-    if ((plat == NULL) || !plat->chardev_capable) {
+    if (!plat->chardev_capable) {
         syslog(LOG_ERR, "mraa_gpio_chardev_edge_mode() not supported for old sysfs interface");
         return MRAA_ERROR_FEATURE_NOT_IMPLEMENTED;
     }
