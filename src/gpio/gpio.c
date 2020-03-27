@@ -156,7 +156,7 @@ mraa_gpio_init_by_name(char* name)
     mraa_gpiod_line_info* linfo = NULL;
     mraa_gpiod_chip_info* cinfo;
     mraa_gpiod_chip_info** cinfos;
-    int i, line_found, line_offset;
+    int i, line_found = 0, line_offset;
 
     if (name == NULL) {
         syslog(LOG_ERR, "[GPIOD_INTERFACE]: Gpio name not valid");

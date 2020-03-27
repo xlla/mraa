@@ -6,6 +6,8 @@
  * 
  * So I name it revive!
  * 
+ * I do not want to re-invent wheel, so just use libgpiod
+ * 
  * due to the lack of acpi <-> kernel bridge, we can't switch pinmode now.
  * spi/i2c/uart1/pwmX was pre difined in acpi-tables, so I simple remove
  * relative preparation code.
@@ -45,6 +47,7 @@
 #include <errno.h>
 #include <time.h>
 #include <sys/utsname.h>
+#include <gpiod.h>
 
 #include "common.h"
 #include "gpio/gpio_chardev.h"
@@ -76,12 +79,12 @@ typedef struct {
     mraa_intel_edison_pindef_t uart;
 } mraa_intel_edison_pinmodes_t;
 
-static mraa_gpio_context tristate;
+static gpio_line tristate;
 
 static mraa_intel_edison_pinmodes_t pinmodes[MRAA_INTEL_EDISON_PINCOUNT];
 //invent another group magic numbers to location chip and line
-static unsigned int outputen[] = { 300, 301, 302, 303, 304, 305, 306, 307, 308, 309,
-                                   310, 311, 312, 313, 200, 201, 202, 203, 204, 205 };
+static unsigned int outputen[] = { 248, 249, 250, 251, 252, 253, 254, 255, 256, 257,
+                                   258, 259, 260, 261, 232, 233, 234, 235, 236, 237 };
 
 static char* directionNames[] = {
     "MUX33_DIR", 
@@ -106,6 +109,12 @@ static char* directionNames[] = {
     "MUX4_DIR", 
 };
 
+
+static mraa_gpio_context agpioOutputen[sizeof(outputen) / sizeof(outputen[0])];
+
+static unsigned int pullup_map[] = { 216, 217, 218, 219, 220, 221, 222, 223, 224, 225,
+                                     226, 227, 228, 229, 208, 209, 210, 211, 212, 213 };
+
 static char* biasNames[] = {
     "DIG0_PU_PD", 
     "DIG1_PU_PD", 
@@ -128,19 +137,14 @@ static char* biasNames[] = {
     "A4_PU_PD", 
     "A5_PU_PD", 
 };
-
-static mraa_gpio_context agpioOutputen[sizeof(outputen) / sizeof(outputen[0])];
-
-static unsigned int pullup_map[] = { 216, 217, 218, 219, 220, 221, 222, 223, 224, 225,
-                                     226, 227, 228, 229, 208, 209, 210, 211, 212, 213 };
 static int miniboard = 0;
 static int vanilla_kernel = 0;
 
 // MMAP
-static uint8_t* mmap_reg = NULL;
-static int mmap_fd = 0;
-static int mmap_size;
-static unsigned int mmap_count = 0;
+// static uint8_t* mmap_reg = NULL;
+// static int mmap_fd = 0;
+// static int mmap_size;
+// static unsigned int mmap_count = 0;
 
 // Pin state for PWM 0% duty and enable/disable bug workaround
 typedef struct {
@@ -151,25 +155,6 @@ typedef struct {
 static mraa_edison_pwm_wa_pinstate_t pwm_wa_state[4] = {{.duty_cycle = 0, .pwm_disabled = 0}};
 
 
-mraa_gpiod_line_info*
-mraa_get_line_info_by_chip_number(unsigned chip_number, unsigned line_number)
-{
-    mraa_gpiod_line_info* linfo;
-    mraa_gpiod_chip_info* cinfo;
-
-    cinfo = mraa_get_chip_info_by_number(chip_number);
-    if (!cinfo) {
-        syslog(LOG_ERR, "[GPIOD_INTERFACE]: invalid chip number");
-        return NULL;
-    }
-
-    linfo = mraa_get_line_info_from_descriptor(cinfo->chip_fd, line_number);
-
-    close(cinfo->chip_fd);
-    free(cinfo);
-
-    return linfo;
-}
 
 mraa_boolean_t mraa_intel_edison_fab_c_is_revive()
 {
@@ -233,40 +218,40 @@ mraa_intel_edison_pinmode_change(int sysfs, int mode)
         syslog(LOG_NOTICE, "edison: Vanilla kernel does not support setting pinmux %d", sysfs);
         return MRAA_SUCCESS;
     }
+    return MRAA_SUCCESS;
+    // char buffer[MAX_SIZE];
+    // int useDebugFS = 0;
 
-    char buffer[MAX_SIZE];
-    int useDebugFS = 0;
+    // mraa_gpio_context mode_gpio = mraa_gpio_init_raw(sysfs);
+    // if (mode_gpio == NULL) {
+    //     return MRAA_ERROR_NO_RESOURCES;
+    // }
 
-    mraa_gpio_context mode_gpio = mraa_gpio_init_raw(sysfs);
-    if (mode_gpio == NULL) {
-        return MRAA_ERROR_NO_RESOURCES;
-    }
+    // // first try SYSFS_CLASS_GPIO path
+    // snprintf(buffer, MAX_SIZE, SYSFS_CLASS_GPIO "/gpio%i/pinmux", sysfs);
+    // int modef = open(buffer, O_WRONLY);
+    // if (modef == -1) {
+    //     snprintf(buffer, MAX_SIZE, DEBUGFS_PINMODE_PATH "%i/current_pinmux", sysfs);
+    //     modef = open(buffer, O_WRONLY);
+    //     useDebugFS = 1;
+    // }
 
-    // first try SYSFS_CLASS_GPIO path
-    snprintf(buffer, MAX_SIZE, SYSFS_CLASS_GPIO "/gpio%i/pinmux", sysfs);
-    int modef = open(buffer, O_WRONLY);
-    if (modef == -1) {
-        snprintf(buffer, MAX_SIZE, DEBUGFS_PINMODE_PATH "%i/current_pinmux", sysfs);
-        modef = open(buffer, O_WRONLY);
-        useDebugFS = 1;
-    }
+    // if (modef == -1) {
+    //     syslog(LOG_ERR, "edison: Failed to open SoC pinmode for opening");
+    //     mraa_gpio_close(mode_gpio);
+    //     return MRAA_ERROR_INVALID_RESOURCE;
+    // }
 
-    if (modef == -1) {
-        syslog(LOG_ERR, "edison: Failed to open SoC pinmode for opening");
-        mraa_gpio_close(mode_gpio);
-        return MRAA_ERROR_INVALID_RESOURCE;
-    }
+    // mraa_result_t ret = MRAA_SUCCESS;
+    // char mode_buf[MAX_MODE_SIZE];
+    // int length = snprintf(mode_buf, MAX_MODE_SIZE, "%s%u", useDebugFS ? "mode" : "", mode);
+    // if (write(modef, mode_buf, length * sizeof(char)) == -1) {
+    //     ret = MRAA_ERROR_INVALID_RESOURCE;
+    // }
+    // close(modef);
+    // mraa_gpio_close(mode_gpio);
 
-    mraa_result_t ret = MRAA_SUCCESS;
-    char mode_buf[MAX_MODE_SIZE];
-    int length = snprintf(mode_buf, MAX_MODE_SIZE, "%s%u", useDebugFS ? "mode" : "", mode);
-    if (write(modef, mode_buf, length * sizeof(char)) == -1) {
-        ret = MRAA_ERROR_INVALID_RESOURCE;
-    }
-    close(modef);
-    mraa_gpio_close(mode_gpio);
-
-    return ret;
+    // return ret;
 }
 
 mraa_result_t
@@ -274,7 +259,7 @@ mraa_intel_edison_revive_gpio_dir_pre(mraa_gpio_context dev, mraa_gpio_dir_t dir
 {
 
     if (dev->phy_pin >= 0) {
-        if (mraa_gpio_write(tristate, 0) != MRAA_SUCCESS) {
+        if (gpiod_ctxless_set_value (tristate.chip, tristate.line, 0, 0, "mraa", NULL, NULL) != MRAA_SUCCESS) {
             // call can sometimes fail, this does not actually mean much except
             // that the kernel drivers don't always behave very well
             syslog(LOG_NOTICE, "edison: Failed to write to tristate");
@@ -307,7 +292,7 @@ mraa_result_t
 mraa_intel_edison_revive_gpio_dir_post(mraa_gpio_context dev, mraa_gpio_dir_t dir)
 {
     if (dev->phy_pin >= 0) {
-        return mraa_gpio_write(tristate, 1);
+        return gpiod_ctxless_set_value (tristate.chip, tristate.line, 1, 0, "mraa", NULL, NULL);
     }
     return MRAA_SUCCESS;
 }
@@ -407,7 +392,7 @@ mraa_intel_edison_revive_aio_init_pre(unsigned int aio)
 
     int pin = 14 + aio;
     mraa_gpio_context output_e;
-    output_e = mraa_gpio_init_raw(outputen[pin]);
+    output_e = mraa_gpio_init_by_name(directionNames[pin]);
     if (output_e == NULL) {
         return MRAA_ERROR_INVALID_RESOURCE;
     }
@@ -422,7 +407,7 @@ mraa_intel_edison_revive_aio_init_pre(unsigned int aio)
     mraa_gpio_close(output_e);
 
     mraa_gpio_context pullup_pin;
-    pullup_pin = mraa_gpio_init_raw(pullup_map[pin]);
+    pullup_pin = mraa_gpio_init_by_name(biasNames[pin]);
     if (pullup_pin == NULL) {
         return MRAA_ERROR_INVALID_RESOURCE;
     }
@@ -498,7 +483,7 @@ mraa_intel_edison_revive_pwm_init_pre(int pin)
     }
 
     mraa_gpio_context output_e;
-    output_e = mraa_gpio_init_raw(outputen[pin]);
+    output_e = mraa_gpio_init_by_name(directionNames[pin]);
     if (output_e == NULL) {
         return MRAA_ERROR_INVALID_RESOURCE;
     }
@@ -513,7 +498,7 @@ mraa_intel_edison_revive_pwm_init_pre(int pin)
     mraa_gpio_close(output_e);
 
     mraa_gpio_context pullup_pin;
-    pullup_pin = mraa_gpio_init_raw(pullup_map[pin]);
+    pullup_pin = mraa_gpio_init_by_name(biasNames[pin]);
     if (pullup_pin == NULL) {
         return MRAA_ERROR_INVALID_RESOURCE;
     }
@@ -564,7 +549,7 @@ mraa_intel_edison_revive_gpio_mode_replace(mraa_gpio_context dev, mraa_gpio_mode
     }
 
     mraa_gpio_context pullup_e;
-    pullup_e = mraa_gpio_init_raw(pullup_map[dev->phy_pin]);
+    pullup_e = mraa_gpio_init_by_name(biasNames[dev->phy_pin]);
     if (pullup_e == NULL) {
         return MRAA_ERROR_INVALID_RESOURCE;
     }
@@ -701,54 +686,15 @@ mraa_intel_edison_revive_i2c_freq(mraa_i2c_context dev, mraa_i2c_mode_t mode)
 
 
 mraa_boolean_t is_exist_line(const char* name) {
-    mraa_board_t* board = plat;
-    mraa_gpiod_line_info* linfo = NULL;
-    mraa_gpiod_chip_info* cinfo;
-    mraa_gpiod_chip_info** cinfos;
-    int i, line_found, line_offset, chip_offset;
-
+    int line_gpio = -1;
+    gpio_line input;
     if (name == NULL) {
         syslog(LOG_ERR, "[GPIOD_INTERFACE]: Gpio name not valid");
         return MRAA_ERROR_INVALID_RESOURCE;
     }
 
-    if (!board->chardev_capable) {
-        syslog(LOG_ERR, "[GPIOD_INTERFACE]: is_exist_line not available for this platform!");
-        return MRAA_ERROR_INVALID_RESOURCE;
-    }
-
-
-    int num_chips = mraa_get_chip_infos(&cinfos);
-    if (num_chips <= 0) {
-        return MRAA_ERROR_INVALID_RESOURCE;
-    }
-
-    line_found = 0;
-    line_offset = 0;
-    chip_offset = 0;
-    i = 0;
-
-    /* Iterate over all gpiochips in the platform to find the requested line */
-    for_each_gpio_chip(cinfo, cinfos, num_chips)
-    {
-        for (i = 0; i < cinfo->chip_info.lines; i++) {
-            linfo = mraa_get_line_info_by_chip_name(cinfo->chip_info.name, i);
-            if (!strncmp(linfo->name, name, 32)) {
-                /* idx is coming from `for_each_gpio_chip` definition */
-                syslog(LOG_DEBUG, "[gpio line check]:found Chip: %d Line: %d", idx, i);
-
-
-                line_found = 1;
-                line_offset = i;
-                chip_offset = idx;
-
-                break;
-            }
-        }
-        if(line_found) break;
-    }
-
-    if (!line_found) {
+    line_gpio = gpiod_ctxless_find_line(name, input.chip, sizeof(input.chip), &input.line);
+    if (line_gpio <= 0) {
         syslog(LOG_ERR, "[gpio line check]: %s not found!", name);
         return MRAA_ERROR_INVALID_RESOURCE;
     }
@@ -759,6 +705,7 @@ mraa_boolean_t is_exist_line(const char* name) {
 mraa_boolean_t
 is_arduino_board_revive()
 {
+    int input_gpio = -1;
     // We check for two things to determine if that's an Arduino expansion board
     // 1) is tristate GPIO available, by trying to initialize it
     // 2) are there four specific GPIO chip, by reading chip name
@@ -766,7 +713,8 @@ is_arduino_board_revive()
     const char* gpio_line_names[4] = {"MUX15_SEL", "DIG0_PU_PD", "MUX14_DIR", "MUX33_DIR"};
 
     // check tristate first
-    tristate = mraa_gpio_init_by_name(TRI_STATE_ALL) {
+    input_gpio = gpiod_ctxless_find_line(TRI_STATE_ALL, tristate.chip, sizeof(tristate.chip), &tristate.line);
+    if (input_gpio <= 0) {
         syslog(LOG_INFO, "edison: tristate not detected");
         return 0;
     }
@@ -827,11 +775,15 @@ mraa_intel_edison_fab_c_revive()
         }
     };
 
+    plat = b;
+    b->chardev_capable = 1;
+    // plat is null , can't call chardev functions
     if (is_arduino_board_revive() == 0) {
         syslog(LOG_NOTICE,
                "edison: Arduino board not detected, assuming Intel Edison Miniboard");
         goto error;
     }
+
     // Now Assuming the edison is attached to the Arduino board.
     b->phy_pin_count = 20;
     b->gpio_count = 14;
@@ -868,17 +820,18 @@ mraa_intel_edison_fab_c_revive()
         free(b->adv_func);
         goto error;
     }
+
     //since mraa invoke us to got plat, if we call mraa's function here
     //then we need to check plat is null everywhere before check plat->chardev_capable
-    if (mraa_gpio_read_dir(tristate, &tristate_dir) != MRAA_SUCCESS) {
-        free(b->pins);
-        free(b->adv_func);
-        goto error;
-    }
+    // if (mraa_gpio_read_dir(tristate, &tristate_dir) != MRAA_SUCCESS) {
+    //     free(b->pins);
+    //     free(b->adv_func);
+    //     goto error;
+    // }
 
-    if (tristate_dir != MRAA_GPIO_OUT) {
-        mraa_gpio_dir(tristate, MRAA_GPIO_OUT);
-    }
+    // if (tristate_dir != MRAA_GPIO_OUT) {
+    //     mraa_gpio_dir(tristate, MRAA_GPIO_OUT);
+    // }
 
     // this is required to initialise not just SPI but also the ADC channels
     mraa_intel_edison_revive_misc_spi();
