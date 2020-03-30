@@ -50,15 +50,13 @@ mraa_x86_platform()
                 plat = mraa_intel_galileo_gen2();
             } else if (strncmp(line, "BODEGA BAY", strlen("BODEGA BAY") + 1) == 0) {
                 platform_type = MRAA_INTEL_EDISON_FAB_C;
-                if(mraa_intel_edison_fab_c_is_revive())
-                    plat = mraa_intel_edison_fab_c_revive();
-                else
+                plat = mraa_intel_edison_fab_c_revive();
+                if(plat == NULL)
                     plat = mraa_intel_edison_fab_c();
             } else if (strncmp(line, "SALT BAY", strlen("SALT BAY") + 1) == 0) {
                 platform_type = MRAA_INTEL_EDISON_FAB_C;
-                if(mraa_intel_edison_fab_c_is_revive())
-                    plat = mraa_intel_edison_fab_c_revive();
-                else
+                plat = mraa_intel_edison_fab_c_revive();
+                if(plat == NULL)
                     plat = mraa_intel_edison_fab_c();
             } else if (strncmp(line, "DE3815", strlen("DE3815") + 1) == 0) {
                 platform_type = MRAA_INTEL_DE3815;

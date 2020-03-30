@@ -204,10 +204,11 @@ mraa_gpio_init_by_name(char* name)
     }
 
     /* Iterate over all gpiochips in the platform to find the requested line */
-    for_each_gpio_chip(cinfo, cinfos, dev->num_chips)
+    // for_each_gpio_chip(cinfo, cinfos, dev->num_chips)  // it's hard to trace in gdb
+    for (int idx = 0; idx < dev->num_chips && (cinfo = cinfos[idx]); (idx++))
     {
         for (i = 0; i < cinfo->chip_info.lines; i++) {
-            linfo = mraa_get_line_info_by_chip_name(cinfo->chip_info.name, i);
+            linfo = mraa_get_line_info_from_descriptor(cinfo->chip_fd, i); // avoid open/close chip file many times
             if (!strncmp(linfo->name, name, 32)) {
                 /* idx is coming from `for_each_gpio_chip` definition */
                 syslog(LOG_DEBUG, "[GPIOD_INTERFACE]: Chip: %d Line: %d", idx, i);
@@ -897,7 +898,7 @@ mraa_gpio_edge_mode(mraa_gpio_context dev, mraa_gpio_edge_t mode)
         }
     }
 
-    if (plat->chardev_capable) 
+    if (plat->chardev_capable)
         return mraa_gpio_chardev_edge_mode(dev, mode);
 
     mraa_gpio_context it = dev;

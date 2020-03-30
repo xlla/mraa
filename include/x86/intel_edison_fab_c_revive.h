@@ -32,15 +32,8 @@ extern "C" {
 
 #define MRAA_INTEL_EDISON_PINCOUNT 25
 
-mraa_boolean_t mraa_intel_edison_fab_c_is_revive();
-
 mraa_board_t*
 mraa_intel_edison_fab_c_revive();
-#define GPIO_STRING_LEN 132
-typedef struct {
-    char chip[GPIO_STRING_LEN];
-    unsigned int line;
-} gpio_line;
 
 #ifdef __cplusplus
 }

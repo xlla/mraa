@@ -6,8 +6,6 @@
  * 
  * So I name it revive!
  * 
- * I do not want to re-invent wheel, so just use libgpiod
- * 
  * due to the lack of acpi <-> kernel bridge, we can't switch pinmode now.
  * spi/i2c/uart1/pwmX was pre difined in acpi-tables, so I simple remove
  * relative preparation code.
@@ -47,7 +45,6 @@
 #include <errno.h>
 #include <time.h>
 #include <sys/utsname.h>
-#include <gpiod.h>
 
 #include "common.h"
 #include "gpio/gpio_chardev.h"
@@ -64,7 +61,7 @@
 // Might not always be correct. First thing to check if mmap stops
 // working. Check the device for 0x1199 and Intel Vendor (0x8086)
 #define MMAP_PATH "/sys/devices/pci0000:00/0000:00:0c.0/resource0"
-#define UART_DEV_PATH ((vanilla_kernel == 0)?"/dev/ttyMFD1":"/dev/ttyS1")
+#define UART_DEV_PATH "/dev/ttyS1"
 
 typedef struct {
     int sysfs;
@@ -79,7 +76,7 @@ typedef struct {
     mraa_intel_edison_pindef_t uart;
 } mraa_intel_edison_pinmodes_t;
 
-static gpio_line tristate;
+static mraa_gpio_context tristate;
 
 static mraa_intel_edison_pinmodes_t pinmodes[MRAA_INTEL_EDISON_PINCOUNT];
 //invent another group magic numbers to location chip and line
@@ -138,13 +135,12 @@ static char* biasNames[] = {
     "A5_PU_PD", 
 };
 static int miniboard = 0;
-static int vanilla_kernel = 0;
 
 // MMAP
-// static uint8_t* mmap_reg = NULL;
-// static int mmap_fd = 0;
-// static int mmap_size;
-// static unsigned int mmap_count = 0;
+static uint8_t* mmap_reg = NULL;
+static int mmap_fd = 0;
+static int mmap_size;
+static unsigned int mmap_count = 0;
 
 // Pin state for PWM 0% duty and enable/disable bug workaround
 typedef struct {
@@ -156,7 +152,7 @@ static mraa_edison_pwm_wa_pinstate_t pwm_wa_state[4] = {{.duty_cycle = 0, .pwm_d
 
 
 
-mraa_boolean_t mraa_intel_edison_fab_c_is_revive()
+mraa_boolean_t is_revive()
 {
     mraa_boolean_t result = 0;
     struct utsname name;
@@ -208,50 +204,46 @@ mraa_intel_edison_revive_spi_lsbmode_replace(mraa_spi_context dev, mraa_boolean_
 }
 
 static mraa_result_t
-mraa_intel_edison_pinmode_change(int sysfs, int mode)
+mraa_intel_edison_revive_pinmode_change(int sysfs, int mode)
 {
     if (mode < 0) {
         return MRAA_SUCCESS;
     }
 
-    if (vanilla_kernel != 0) {
-        syslog(LOG_NOTICE, "edison: Vanilla kernel does not support setting pinmux %d", sysfs);
-        return MRAA_SUCCESS;
+    // return MRAA_SUCCESS;
+    char buffer[MAX_SIZE];
+    int useDebugFS = 0;
+
+    mraa_gpio_context mode_gpio = mraa_gpio_init_raw(sysfs);
+    if (mode_gpio == NULL) {
+        return MRAA_ERROR_NO_RESOURCES;
     }
-    return MRAA_SUCCESS;
-    // char buffer[MAX_SIZE];
-    // int useDebugFS = 0;
 
-    // mraa_gpio_context mode_gpio = mraa_gpio_init_raw(sysfs);
-    // if (mode_gpio == NULL) {
-    //     return MRAA_ERROR_NO_RESOURCES;
-    // }
+    // first try SYSFS_CLASS_GPIO path
+    snprintf(buffer, MAX_SIZE, SYSFS_CLASS_GPIO "/gpio%i/pinmux", sysfs);
+    int modef = open(buffer, O_WRONLY);
+    if (modef == -1) {
+        snprintf(buffer, MAX_SIZE, DEBUGFS_PINMODE_PATH "%i/current_pinmux", sysfs);
+        modef = open(buffer, O_WRONLY);
+        useDebugFS = 1;
+    }
 
-    // // first try SYSFS_CLASS_GPIO path
-    // snprintf(buffer, MAX_SIZE, SYSFS_CLASS_GPIO "/gpio%i/pinmux", sysfs);
-    // int modef = open(buffer, O_WRONLY);
-    // if (modef == -1) {
-    //     snprintf(buffer, MAX_SIZE, DEBUGFS_PINMODE_PATH "%i/current_pinmux", sysfs);
-    //     modef = open(buffer, O_WRONLY);
-    //     useDebugFS = 1;
-    // }
+    if (modef == -1) {
+        syslog(LOG_ERR, "edison: Failed to open SoC pinmode for opening");
+        mraa_gpio_close(mode_gpio);
+        return MRAA_ERROR_INVALID_RESOURCE;
+    }
 
-    // if (modef == -1) {
-    //     syslog(LOG_ERR, "edison: Failed to open SoC pinmode for opening");
-    //     mraa_gpio_close(mode_gpio);
-    //     return MRAA_ERROR_INVALID_RESOURCE;
-    // }
+    mraa_result_t ret = MRAA_SUCCESS;
+    char mode_buf[MAX_MODE_SIZE];
+    int length = snprintf(mode_buf, MAX_MODE_SIZE, "%s%u", useDebugFS ? "mode" : "", mode);
+    if (write(modef, mode_buf, length * sizeof(char)) == -1) {
+        ret = MRAA_ERROR_INVALID_RESOURCE;
+    }
+    close(modef);
+    mraa_gpio_close(mode_gpio);
 
-    // mraa_result_t ret = MRAA_SUCCESS;
-    // char mode_buf[MAX_MODE_SIZE];
-    // int length = snprintf(mode_buf, MAX_MODE_SIZE, "%s%u", useDebugFS ? "mode" : "", mode);
-    // if (write(modef, mode_buf, length * sizeof(char)) == -1) {
-    //     ret = MRAA_ERROR_INVALID_RESOURCE;
-    // }
-    // close(modef);
-    // mraa_gpio_close(mode_gpio);
-
-    // return ret;
+    return ret;
 }
 
 mraa_result_t
@@ -259,7 +251,7 @@ mraa_intel_edison_revive_gpio_dir_pre(mraa_gpio_context dev, mraa_gpio_dir_t dir
 {
 
     if (dev->phy_pin >= 0) {
-        if (gpiod_ctxless_set_value (tristate.chip, tristate.line, 0, 0, "mraa", NULL, NULL) != MRAA_SUCCESS) {
+        if (mraa_gpio_write(tristate, 0) != MRAA_SUCCESS) {
             // call can sometimes fail, this does not actually mean much except
             // that the kernel drivers don't always behave very well
             syslog(LOG_NOTICE, "edison: Failed to write to tristate");
@@ -292,7 +284,7 @@ mraa_result_t
 mraa_intel_edison_revive_gpio_dir_post(mraa_gpio_context dev, mraa_gpio_dir_t dir)
 {
     if (dev->phy_pin >= 0) {
-        return gpiod_ctxless_set_value (tristate.chip, tristate.line, 1, 0, "mraa", NULL, NULL);
+        return mraa_gpio_write(tristate, 0);
     }
     return MRAA_SUCCESS;
 }
@@ -313,7 +305,7 @@ mraa_intel_edison_revive_gpio_init_post(mraa_gpio_context dev)
         mode = pinmodes[dev->phy_pin].gpio.mode;
     }
 
-    return mraa_intel_edison_pinmode_change(sysfs, mode);
+    return mraa_intel_edison_revive_pinmode_change(sysfs, mode);
 }
 
 mraa_result_t
@@ -472,7 +464,7 @@ mraa_result_t
 mraa_intel_edison_revive_pwm_init_pre(int pin)
 {
     if (miniboard == 1) {
-        return mraa_intel_edison_pinmode_change(plat->pins[pin].gpio.pinmap, 1);
+        return mraa_intel_edison_revive_pinmode_change(plat->pins[pin].gpio.pinmap, 1);
     }
     if (pin < 0 || pin > 19) {
         return MRAA_ERROR_INVALID_RESOURCE;
@@ -507,7 +499,7 @@ mraa_intel_edison_revive_pwm_init_pre(int pin)
         return MRAA_ERROR_INVALID_RESOURCE;
     }
     mraa_gpio_close(pullup_pin);
-    mraa_intel_edison_pinmode_change(plat->pins[pin].gpio.pinmap, 1);
+    mraa_intel_edison_revive_pinmode_change(plat->pins[pin].gpio.pinmap, 1);
 
     return MRAA_SUCCESS;
 }
@@ -677,6 +669,110 @@ mraa_intel_edison_revive_uart_init_post(mraa_uart_context uart)
     return MRAA_SUCCESS;
 }
 
+static mraa_result_t
+mraa_intel_edison_revive_mmap_unsetup()
+{
+    if (mmap_reg == NULL) {
+        syslog(LOG_ERR, "edison mmap: null register cant unsetup");
+        return MRAA_ERROR_INVALID_RESOURCE;
+    }
+    munmap(mmap_reg, mmap_size);
+    mmap_reg = NULL;
+    if (close(mmap_fd) != 0) {
+        return MRAA_ERROR_INVALID_RESOURCE;
+    }
+    return MRAA_SUCCESS;
+}
+
+mraa_result_t
+mraa_intel_edison_revive_mmap_write(mraa_gpio_context dev, int value)
+{
+    uint8_t offset = ((dev->pin / 32) * sizeof(uint32_t));
+    uint8_t valoff;
+
+    if (value) {
+        valoff = 0x34;
+    } else {
+        valoff = 0x4c;
+    }
+
+    *(volatile uint32_t*) (mmap_reg + offset + valoff) = (uint32_t)(1 << (dev->pin % 32));
+
+    return MRAA_SUCCESS;
+}
+
+int
+mraa_intel_edison_revive_mmap_read(mraa_gpio_context dev)
+{
+    uint8_t offset = ((dev->pin / 32) * sizeof(uint32_t));
+    uint32_t value;
+
+    value = *(volatile uint32_t*) (mmap_reg + 0x04 + offset);
+    if (value & (uint32_t)(1 << (dev->pin % 32))) {
+        return 1;
+    }
+    return 0;
+}
+
+mraa_result_t
+mraa_intel_edison_revive_mmap_setup(mraa_gpio_context dev, mraa_boolean_t en)
+{
+    if (dev == NULL) {
+        syslog(LOG_ERR, "edison mmap: context not valid");
+        return MRAA_ERROR_INVALID_HANDLE;
+    }
+
+    if (en == 0) {
+        if (dev->mmap_write == NULL && dev->mmap_read == NULL) {
+            syslog(LOG_ERR, "edison mmap: can't disable disabled mmap gpio");
+            return MRAA_ERROR_INVALID_PARAMETER;
+        }
+        dev->mmap_write = NULL;
+        dev->mmap_read = NULL;
+        mmap_count--;
+        if (mmap_count == 0) {
+            return mraa_intel_edison_revive_mmap_unsetup();
+        }
+        return MRAA_SUCCESS;
+    }
+
+    if (dev->mmap_write != NULL && dev->mmap_read != NULL) {
+        syslog(LOG_ERR, "edison mmap: can't enable enabled mmap gpio");
+        return MRAA_ERROR_INVALID_PARAMETER;
+    }
+
+    // Might need to make some elements of this thread safe.
+    // For example only allow one thread to enter the following block
+    // to prevent mmap'ing twice.
+    if (mmap_reg == NULL) {
+        if ((mmap_fd = open(MMAP_PATH, O_RDWR)) < 0) {
+            syslog(LOG_ERR, "edison map: unable to open resource0 file");
+            return MRAA_ERROR_INVALID_HANDLE;
+        }
+
+        struct stat fd_stat;
+        if (fstat(mmap_fd, &fd_stat) != 0) {
+            syslog(LOG_ERR, "edison map: unable to access resource0 file");
+            return MRAA_ERROR_INVALID_HANDLE;
+        }
+        mmap_size = fd_stat.st_size;
+
+        mmap_reg =
+        (uint8_t*) mmap(NULL, fd_stat.st_size, PROT_READ | PROT_WRITE, MAP_FILE | MAP_SHARED, mmap_fd, 0);
+        if (mmap_reg == MAP_FAILED) {
+            syslog(LOG_ERR, "edison mmap: failed to mmap");
+            mmap_reg = NULL;
+            close(mmap_fd);
+            return MRAA_ERROR_NO_RESOURCES;
+        }
+    }
+    dev->mmap_write = &mraa_intel_edison_revive_mmap_write;
+    dev->mmap_read = &mraa_intel_edison_revive_mmap_read;
+    mmap_count++;
+
+    return MRAA_SUCCESS;
+}
+
 mraa_result_t
 mraa_intel_edison_revive_i2c_freq(mraa_i2c_context dev, mraa_i2c_mode_t mode)
 {
@@ -684,22 +780,139 @@ mraa_intel_edison_revive_i2c_freq(mraa_i2c_context dev, mraa_i2c_mode_t mode)
     return MRAA_SUCCESS;
 }
 
+mraa_gpio_context
+mraa_gpio_line_init_by_name(char* name)
+{
+    mraa_board_t* board = plat;
+    mraa_gpio_context dev;
+    mraa_gpiod_group_t gpio_group;
+    mraa_gpiod_line_info* linfo = NULL;
+    mraa_gpiod_chip_info* cinfo;
+    mraa_gpiod_chip_info** cinfos;
+    int i, line_found = 0, line_offset;
 
-mraa_boolean_t is_exist_line(const char* name) {
+    if (name == NULL) {
+        syslog(LOG_ERR, "[GPIOD_INTERFACE]: Gpio name not valid");
+        return NULL;
+    }
+
+    if (!board->chardev_capable) {
+        syslog(LOG_ERR, "[GPIOD_INTERFACE]: gpio_init_by_name not available for this platform!");
+        return NULL;
+    }
+
+    dev = (mraa_gpio_context) calloc(1, sizeof(struct _gpio));
+    if (dev == NULL) {
+        syslog(LOG_CRIT, "[GPIOD_INTERFACE]: Failed to allocate memory for context");
+        return NULL;
+    }
+
+    dev->pin_to_gpio_table = malloc(sizeof(int));
+    if (dev->pin_to_gpio_table == NULL) {
+        syslog(LOG_CRIT, "[GPIOD_INTERFACE]: Failed to allocate memory for internal member");
+        mraa_gpio_close(dev);
+        return NULL;
+    }
+
+    dev->num_chips = mraa_get_chip_infos(&cinfos);
+    if (dev->num_chips <= 0) {
+        mraa_gpio_close(dev);
+        return NULL;
+    }
+
+    /* We are dealing with a single GPIO */
+    dev->num_pins = 1;
+
+    gpio_group = calloc(dev->num_chips, sizeof(struct _gpio_group));
+    if (gpio_group == NULL) {
+        syslog(LOG_CRIT, "[GPIOD_INTERFACE]: Failed to allocate memory for internal member");
+        mraa_gpio_close(dev);
+        return NULL;
+    }
+
+    dev->gpio_group = gpio_group;
+    for (i = 0; i < dev->num_chips; ++i) {
+        gpio_group[i].gpio_chip = i;
+        gpio_group[i].gpio_lines = NULL;
+    }
+
+    /* Iterate over all gpiochips in the platform to find the requested line */
+    for (int idx = 0; idx < dev->num_chips && (cinfo = cinfos[idx]); (idx++))
+    {
+        for (i = 0; i < cinfo->chip_info.lines; i++) {
+            linfo = mraa_get_line_info_by_chip_name(cinfo->chip_info.name, i);
+            if (!strncmp(linfo->name, name, 32)) {
+                /* idx is coming from `for_each_gpio_chip` definition */
+                syslog(LOG_DEBUG, "[GPIOD_INTERFACE]: Chip: %d Line: %d", idx, i);
+                if (!gpio_group[idx].is_required) {
+                    gpio_group[idx].dev_fd = cinfo->chip_fd;
+                    gpio_group[idx].is_required = 1;
+                    gpio_group[idx].gpiod_handle = -1;
+                }
+
+                /* Map pin to _gpio_group structure. */
+                dev->pin_to_gpio_table[0] = idx;
+                gpio_group[idx].gpio_lines = realloc(gpio_group[idx].gpio_lines, sizeof(unsigned int));
+                gpio_group[idx].gpio_lines[0] = i;
+                gpio_group[idx].num_gpio_lines++;
+
+                line_found = 1;
+                line_offset = i;
+
+                break;
+            }
+        }
+        if(line_found) break;
+    }
+
+    if (!line_found) {
+        syslog(LOG_ERR, "[GPIOD_INTERFACE]: Gpio not found!");
+        return NULL;
+    }
+
+    /* Initialize rw_values for read / write multiple functions */
+    for (i = 0; i < dev->num_chips; ++i) {
+        gpio_group[i].rw_values = calloc(gpio_group[i].num_gpio_lines, sizeof(unsigned char));
+        if (gpio_group[i].rw_values == NULL) {
+            syslog(LOG_CRIT, "[GPIOD_INTERFACE]: Failed to allocate memory for internal member");
+            mraa_gpio_close(dev);
+            return NULL;
+        }
+
+        gpio_group[i].event_handles = NULL;
+    }
+
+    /* Save the provided array from the user to our internal structure. */
+    dev->provided_pins = malloc(dev->num_pins * sizeof(int));
+    if (dev->provided_pins == NULL) {
+        syslog(LOG_CRIT, "[GPIOD_INTERFACE]: Failed to allocate memory for internal member");
+        mraa_gpio_close(dev);
+        return NULL;
+    }
+
+    memcpy(dev->provided_pins, &line_offset, dev->num_pins * sizeof(int));
+
+    dev->events = NULL;
+
+    return dev;
+}
+
+mraa_result_t is_exist_line(const char* name) {
     int line_gpio = -1;
-    gpio_line input;
     if (name == NULL) {
         syslog(LOG_ERR, "[GPIOD_INTERFACE]: Gpio name not valid");
         return MRAA_ERROR_INVALID_RESOURCE;
     }
 
-    line_gpio = gpiod_ctxless_find_line(name, input.chip, sizeof(input.chip), &input.line);
-    if (line_gpio <= 0) {
+    mraa_gpio_context dev = mraa_gpio_line_init_by_name(name);
+    if (dev) {
+        mraa_gpio_close(dev);
+    } else {
         syslog(LOG_ERR, "[gpio line check]: %s not found!", name);
         return MRAA_ERROR_INVALID_RESOURCE;
     }
 
-    return MRAA_SUCCESS;
+            return MRAA_SUCCESS;
 }
 
 mraa_boolean_t
@@ -713,16 +926,20 @@ is_arduino_board_revive()
     const char* gpio_line_names[4] = {"MUX15_SEL", "DIG0_PU_PD", "MUX14_DIR", "MUX33_DIR"};
 
     // check tristate first
-    input_gpio = gpiod_ctxless_find_line(TRI_STATE_ALL, tristate.chip, sizeof(tristate.chip), &tristate.line);
-    if (input_gpio <= 0) {
+    tristate = mraa_gpio_init_by_name(TRI_STATE_ALL);
+
+    if (tristate == NULL) {
         syslog(LOG_INFO, "edison: tristate not detected");
         return 0;
     }
-
+    mraa_result_t r = mraa_gpio_dir(tristate, MRAA_GPIO_OUT);
+    if (r != MRAA_SUCCESS) {
+    mraa_result_print(r);
+    }
     // GPIO expanders second
     for (int i=0; i<(sizeof(gpiochip_idx)/sizeof(gpiochip_idx[0])); i++) {
         // we want to check for exact match
-        if (!is_exist_line(gpio_line_names[i])) {
+        if (is_exist_line(gpio_line_names[i]) != MRAA_SUCCESS) {
             syslog(LOG_INFO, "edison: %s line not detected", gpio_line_names[i]);
             return 0;
         }
@@ -736,11 +953,8 @@ mraa_board_t*
 mraa_intel_edison_fab_c_revive()
 {
     mraa_gpio_dir_t tristate_dir;
-    struct utsname name;
-    int major, minor, release;
-    int ret;
 
-    if(!mraa_intel_edison_fab_c_is_revive()) {
+    if(!is_revive()) {
         syslog(LOG_CRIT, "edison: Arduino board kernel need >= 4.18");
         return NULL;
     }
@@ -751,29 +965,6 @@ mraa_intel_edison_fab_c_revive()
     }
 
     b->platform_name = PLATFORM_NAME;
-
-    if (uname(&name) != 0) {
-        goto error;
-    }
-
-    ret = sscanf(name.release, "%d.%d.%d", &major, &minor, &release);
-    if (ret == 2) {
-        ret++;
-        release = 0;
-    }
-    if (ret < 2) {
-        goto error;
-    }
-
-    if (major >= 4) {
-        vanilla_kernel = 1;
-        syslog(LOG_NOTICE,
-               "edison: Linux version 4 or higher detected, assuming Vanilla kernel");
-        if ((major == 4 && minor >= 18) ||(major >= 5)) {
-            syslog(LOG_NOTICE,
-               "edison: Linux version 4.18 or higher detected, use chardev driver");
-        }
-    };
 
     plat = b;
     b->chardev_capable = 1;
@@ -821,8 +1012,6 @@ mraa_intel_edison_fab_c_revive()
         goto error;
     }
 
-    //since mraa invoke us to got plat, if we call mraa's function here
-    //then we need to check plat is null everywhere before check plat->chardev_capable
     // if (mraa_gpio_read_dir(tristate, &tristate_dir) != MRAA_SUCCESS) {
     //     free(b->pins);
     //     free(b->adv_func);
@@ -879,7 +1068,7 @@ mraa_intel_edison_fab_c_revive()
     b->pins[3].capabilities = (mraa_pincapabilities_t){ 1, 1, 1, 0, 0, 0, 0, 0 };
     b->pins[3].gpio.pinmap = 12;
     b->pins[3].gpio.parent_id = 0;
-    b->pins[3].gpio.mux_total = 1;
+    b->pins[3].gpio.mux_total = 0;
     b->pins[3].gpio.mux[0].pincmd = PINCMD_SET_DIRECTION;
     b->pins[3].gpio.mux[0].pin = 219;
     b->pins[3].gpio.mux[0].value = MRAA_GPIO_IN;
@@ -1198,6 +1387,7 @@ mraa_intel_edison_fab_c_revive()
     b->uart_dev[0].tx = 1;
     b->uart_dev[0].device_path = UART_DEV_PATH;
 
+    //TODO we can't switch pinmode right now
     int il;
     for (il = 0; il < MRAA_INTEL_EDISON_PINCOUNT; il++) {
         pinmodes[il].gpio.sysfs = -1;
