@@ -83,57 +83,78 @@ static mraa_intel_edison_pinmodes_t pinmodes[MRAA_INTEL_EDISON_PINCOUNT];
 static unsigned int outputen[] = { 248, 249, 250, 251, 252, 253, 254, 255, 256, 257,
                                    258, 259, 260, 261, 232, 233, 234, 235, 236, 237 };
 
-static char* directionNames[] = {
-    "MUX33_DIR", 
-    "MUX31_DIR", 
-    "MUX29_DIR", 
-    "MUX27_DIR", 
-    "MUX24_DIR", 
-    "MUX21_DIR", 
-    "MUX19_DIR", 
-    "MUX32_DIR", 
-    "MUX30_DIR", 
-    "MUX28_DIR", 
-    "MUX26_DIR", 
-    "MUX23_DIR", 
-    "MUX20_DIR", 
-    "MUX18_DIR", 
-    "MUX14_DIR", 
-    "MUX12_DIR", 
-    "MUX10_DIR", 
-    "MUX8_DIR", 
-    "MUX6_DIR", 
-    "MUX4_DIR", 
-};
-
 
 static mraa_gpio_context agpioOutputen[sizeof(outputen) / sizeof(outputen[0])];
 
 static unsigned int pullup_map[] = { 216, 217, 218, 219, 220, 221, 222, 223, 224, 225,
                                      226, 227, 228, 229, 208, 209, 210, 211, 212, 213 };
 
-static char* biasNames[] = {
-    "DIG0_PU_PD", 
-    "DIG1_PU_PD", 
-    "DIG2_PU_PD", 
-    "DIG3_PU_PD", 
-    "DIG4_PU_PD", 
-    "DIG5_PU_PD", 
-    "DIG6_PU_PD", 
-    "DIG7_PU_PD", 
-    "DIG8_PU_PD", 
-    "DIG9_PU_PD", 
-    "DIG10_PU_PD", 
-    "DIG11_PU_PD", 
-    "DIG12_PU_PD", 
-    "DIG13_PU_PD", 
-    "A0_PU_PD", 
-    "A1_PU_PD", 
-    "A2_PU_PD", 
-    "A3_PU_PD", 
-    "A4_PU_PD", 
-    "A5_PU_PD", 
+/* tpyes used for pin name */
+typedef struct _PinName
+{
+	uint32_t		ulGPIOId;		// Identitiy in GPIOLib as a GPIO
+	char* name;	//pin name
+} PinName;
+
+PinName g_APinName[] = {
+	//	gpiolib	, name
+{ 200, "MUX15_SEL"}, 
+{ 201, "MUX13_SEL"}, 
+{ 202, "MUX11_SEL"}, 
+{ 203, "MUX9_SEL"}, 
+{ 204, "MUX7_SEL"}, 
+{ 205, "MUX5_SEL"}, 
+{ 208, "A0_PU_PD"}, 
+{ 209, "A1_PU_PD"}, 
+{ 210, "A2_PU_PD"}, 
+{ 211, "A3_PU_PD"}, 
+{ 212, "A4_PU_PD"}, 
+{ 213, "A5_PU_PD"}, 
+{ 214, "TRI_STATE_ALL"}, 
+{ 216, "DIG0_PU_PD"}, 
+{ 217, "DIG1_PU_PD"}, 
+{ 218, "DIG2_PU_PD"}, 
+{ 219, "DIG3_PU_PD"}, 
+{ 220, "DIG4_PU_PD"}, 
+{ 221, "DIG5_PU_PD"}, 
+{ 222, "DIG6_PU_PD"}, 
+{ 223, "DIG7_PU_PD"}, 
+{ 224, "DIG8_PU_PD"}, 
+{ 225, "DIG9_PU_PD"}, 
+{ 226, "DIG10_PU_PD"}, 
+{ 227, "DIG11_PU_PD"}, 
+{ 228, "DIG12_PU_PD"}, 
+{ 229, "DIG13_PU_PD"}, 
+{ 232, "MUX14_DIR"}, 
+{ 233, "MUX12_DIR"}, 
+{ 234, "MUX10_DIR"}, 
+{ 235, "MUX8_DIR"}, 
+{ 236, "MUX6_DIR"}, 
+{ 237, "MUX4_DIR"}, 
+{ 240, "SPI_FS_SEL"}, 
+{ 241, "SPI_TXD_SEL"}, 
+{ 242, "SPI_RXD_SEL"}, 
+{ 243, "SPI_CLK_SEL"}, 
+{ 248, "MUX33_DIR"}, 
+{ 249, "MUX31_DIR"}, 
+{ 250, "MUX29_DIR"}, 
+{ 251, "MUX27_DIR"}, 
+{ 252, "MUX24_DIR"}, 
+{ 253, "MUX21_DIR"}, 
+{ 254, "MUX19_DIR"}, 
+{ 255, "MUX32_DIR"}, 
+{ 256, "MUX30_DIR"}, 
+{ 257, "MUX28_DIR"}, 
+{ 258, "MUX26_DIR"}, 
+{ 259, "MUX23_DIR"}, 
+{ 260, "MUX20_DIR"}, 
+{ 261, "MUX18_DIR"}, 
+{ 262, "MUX22_SEL"}, 
+{ 263, "MUX25_SEL"}, 
 };
+
+static int g_APinNames = sizeof(g_APinName) / sizeof(g_APinName[0]);
+
 static int miniboard = 0;
 
 // MMAP
@@ -150,7 +171,16 @@ typedef struct {
 
 static mraa_edison_pwm_wa_pinstate_t pwm_wa_state[4] = {{.duty_cycle = 0, .pwm_disabled = 0}};
 
-
+static char* pin_line_name(int pin) {
+    char* name = NULL;
+    for(int i=0; i< g_APinNames;i++) {
+        if(g_APinName[i].ulGPIOId == pin) {
+            name = g_APinName[i].name;
+            break;
+        }
+    }
+    return name;
+}
 
 mraa_boolean_t is_revive()
 {
@@ -209,6 +239,8 @@ mraa_intel_edison_revive_pinmode_change(int sysfs, int mode)
     if (mode < 0) {
         return MRAA_SUCCESS;
     }
+    syslog(LOG_ERR, "edison: SoC pinmode not implement now!!!!!!!");
+    return MRAA_SUCCESS;
 
     // return MRAA_SUCCESS;
     char buffer[MAX_SIZE];
@@ -250,7 +282,7 @@ mraa_result_t
 mraa_intel_edison_revive_gpio_dir_pre(mraa_gpio_context dev, mraa_gpio_dir_t dir)
 {
 
-    if (dev->phy_pin >= 0) {
+    if (dev->phy_pin >= 0 && dev->phy_pin < plat->phy_pin_count) {
         if (mraa_gpio_write(tristate, 0) != MRAA_SUCCESS) {
             // call can sometimes fail, this does not actually mean much except
             // that the kernel drivers don't always behave very well
@@ -260,21 +292,21 @@ mraa_intel_edison_revive_gpio_dir_pre(mraa_gpio_context dev, mraa_gpio_dir_t dir
 
         if (!agpioOutputen[pin]) {
             //will init one chardev gpio pin dev 
-            agpioOutputen[pin] = mraa_gpio_init_by_name(directionNames[pin]);
+            agpioOutputen[pin] = mraa_gpio_init_by_name(pin_line_name(outputen[pin]));
             if (agpioOutputen[pin] == NULL) {
                 return MRAA_ERROR_INVALID_RESOURCE;
             }
-            if (mraa_gpio_dir(agpioOutputen[pin], MRAA_GPIO_OUT) != MRAA_SUCCESS) {
-                return MRAA_ERROR_INVALID_RESOURCE;
-            }
+            // if (mraa_gpio_dir(agpioOutputen[pin], MRAA_GPIO_OUT) != MRAA_SUCCESS) {
+            //     return MRAA_ERROR_INVALID_RESOURCE;
+            // }
         }
-        int output_val = 0;
-        if (dir == MRAA_GPIO_OUT) {
-            output_val = 1;
-        }
-        if (mraa_gpio_write(agpioOutputen[pin], output_val) != MRAA_SUCCESS) {
-            return MRAA_ERROR_INVALID_RESOURCE;
-        }
+        // int output_val = 0;
+        // if (dir == MRAA_GPIO_OUT) {
+        //     output_val = 1;
+        // }
+        // if (mraa_gpio_write(agpioOutputen[pin], output_val) != MRAA_SUCCESS) {
+        //     return MRAA_ERROR_INVALID_RESOURCE;
+        // }
     }
 
     return MRAA_SUCCESS;
@@ -384,7 +416,7 @@ mraa_intel_edison_revive_aio_init_pre(unsigned int aio)
 
     int pin = 14 + aio;
     mraa_gpio_context output_e;
-    output_e = mraa_gpio_init_by_name(directionNames[pin]);
+    output_e = mraa_gpio_init_by_name(pin_line_name(outputen[pin]));
     if (output_e == NULL) {
         return MRAA_ERROR_INVALID_RESOURCE;
     }
@@ -399,7 +431,7 @@ mraa_intel_edison_revive_aio_init_pre(unsigned int aio)
     mraa_gpio_close(output_e);
 
     mraa_gpio_context pullup_pin;
-    pullup_pin = mraa_gpio_init_by_name(biasNames[pin]);
+    pullup_pin = mraa_gpio_init_by_name(pin_line_name(pullup_map[pin]));
     if (pullup_pin == NULL) {
         return MRAA_ERROR_INVALID_RESOURCE;
     }
@@ -475,7 +507,7 @@ mraa_intel_edison_revive_pwm_init_pre(int pin)
     }
 
     mraa_gpio_context output_e;
-    output_e = mraa_gpio_init_by_name(directionNames[pin]);
+    output_e = mraa_gpio_init_by_name(pin_line_name(outputen[pin]));
     if (output_e == NULL) {
         return MRAA_ERROR_INVALID_RESOURCE;
     }
@@ -490,7 +522,7 @@ mraa_intel_edison_revive_pwm_init_pre(int pin)
     mraa_gpio_close(output_e);
 
     mraa_gpio_context pullup_pin;
-    pullup_pin = mraa_gpio_init_by_name(biasNames[pin]);
+    pullup_pin = mraa_gpio_init_by_name(pin_line_name(pullup_map[pin]));
     if (pullup_pin == NULL) {
         return MRAA_ERROR_INVALID_RESOURCE;
     }
@@ -541,7 +573,7 @@ mraa_intel_edison_revive_gpio_mode_replace(mraa_gpio_context dev, mraa_gpio_mode
     }
 
     mraa_gpio_context pullup_e;
-    pullup_e = mraa_gpio_init_by_name(biasNames[dev->phy_pin]);
+    pullup_e = mraa_gpio_init_by_name(pin_line_name(pullup_map[dev->phy_pin]));
     if (pullup_e == NULL) {
         return MRAA_ERROR_INVALID_RESOURCE;
     }
@@ -949,6 +981,36 @@ is_arduino_board_revive()
     return 1;
 }
 
+
+static mraa_result_t
+mraa_intel_edison_revive_gpio_init_internal_replace(mraa_gpio_context dev, int pin)
+{
+    char* name = NULL;
+    
+    mraa_gpio_context dev_line = mraa_gpio_init_by_name(pin_line_name(pin));
+    if (dev_line == NULL) {
+        syslog(LOG_ERR, "peripheralmanager: Failed to init gpio");
+        return MRAA_ERROR_INVALID_HANDLE;
+    } 
+    
+    dev_line->advance_func = dev->advance_func;
+    dev_line->pin = pin;
+    dev_line->phy_pin = pin;
+    mraa_gpio_context dev_old = dev;
+    free(dev_old);
+    *dev = *dev_line;
+
+    // memcpy(&(*dev), &(*dev_line), sizeof(struct _gpio));
+
+    // free(dev_line);
+    // dev->pin = pin;
+    // dev->phy_pin = pin1;
+
+    return MRAA_SUCCESS;
+}
+
+
+
 mraa_board_t*
 mraa_intel_edison_fab_c_revive()
 {
@@ -985,6 +1047,8 @@ mraa_intel_edison_fab_c_revive()
     if (b->adv_func == NULL) {
         goto error;
     }
+    //to init mux/bias pin
+    b->adv_func->gpio_init_internal_replace = &mraa_intel_edison_revive_gpio_init_internal_replace;
     b->adv_func->gpio_dir_pre = &mraa_intel_edison_revive_gpio_dir_pre;
     b->adv_func->gpio_init_post = &mraa_intel_edison_revive_gpio_init_post;
     b->adv_func->gpio_close_pre = &mraa_intel_edison_revive_gpio_close_pre;
@@ -1068,7 +1132,7 @@ mraa_intel_edison_fab_c_revive()
     b->pins[3].capabilities = (mraa_pincapabilities_t){ 1, 1, 1, 0, 0, 0, 0, 0 };
     b->pins[3].gpio.pinmap = 12;
     b->pins[3].gpio.parent_id = 0;
-    b->pins[3].gpio.mux_total = 0;
+    b->pins[3].gpio.mux_total = 1;
     b->pins[3].gpio.mux[0].pincmd = PINCMD_SET_DIRECTION;
     b->pins[3].gpio.mux[0].pin = 219;
     b->pins[3].gpio.mux[0].value = MRAA_GPIO_IN;
@@ -1360,6 +1424,12 @@ mraa_intel_edison_fab_c_revive()
     b->pins[19].gpio.mux[1].pincmd = PINCMD_SET_OUT_VALUE;
     b->pins[19].gpio.mux[1].pin = 205;
     b->pins[19].gpio.mux[1].value = 0;
+
+    //to use chardev, must set chip id and line number here
+    for(int i=0; i <b->phy_pin_count; i ++) {
+        b->pins[i].gpio.gpio_chip = 0;
+        b->pins[i].gpio.gpio_line = b->pins[i].gpio.pinmap;
+    }
 
     // BUS DEFINITIONS
     b->i2c_bus_count = 9;
